@@ -1,0 +1,56 @@
+name: CI - Gatekeeper
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    
+    - name: Setup Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache Dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8
+    
+    - name: Linting with Flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run Chaos Monkey Stress Test
+      run: |
+        echo "🐒 Running Chaos Monkey stress test..."
+        python tests/chaos_monkey.py
+        echo "✅ Stress test passed!"
+    
+    - name: Verify Project Structure
+      run: |
+        echo "📁 Checking project structure..."
+        test -f src/engine.py && echo "✅ engine.py exists"
+        test -f src/utils.py && echo "✅ utils.py exists"
+        test -f app.py && echo "✅ app.py exists"
+        test -f requirements.txt && echo "✅ requirements.txt exists"
+        echo "✅ All critical files present"

@@ -1,0 +1,46 @@
+name: Daily Health Check
+
+on:
+  schedule:
+    # Runs at midnight UTC every day
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    
+    - name: Setup Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache Dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run System Health Check
+      run: |
+        echo "🏥 Running scheduled health check..."
+        python src/engine.py --mode=health_check
+        echo "✅ Health check completed successfully!"
+    
+    - name: Report Status
+      if: failure()
+      run: |
+        echo "❌ Health check failed!"
+        echo "🚨 Action required: Review the logs above"
+        exit 1
