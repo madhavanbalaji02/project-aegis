@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, Union
 from io import BytesIO
 import duckdb
 import polars as pl
+import numpy as np
 # Simplified version without Evidently for compatibility
 import pandas as pd
 
@@ -83,6 +84,69 @@ class AegisEngine:
         except Exception as e:
             print(f"❌ Error during drift scan: {str(e)}")
             raise
+    
+    def scan_batch(self, batch_df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Analyze a single batch of streaming data for real-time drift detection.
+        Optimized for speed with minimal memory footprint.
+        
+        Args:
+            batch_df: DataFrame batch from streaming source
+            
+        Returns:
+            Dictionary with batch analysis results
+        """
+        try:
+            # Quick statistical drift detection
+            missing_counts = batch_df.isnull().sum()
+            columns_with_issues = (missing_counts > 0).sum()
+            drift_score = columns_with_issues / len(batch_df.columns) if len(batch_df.columns) > 0 else 0.0
+            
+            # Check for anomalies (values >3 std devs from mean)
+            numeric_cols = batch_df.select_dtypes(include=[np.number]).columns
+            anomaly_count = 0
+            
+            for col in numeric_cols:
+                if len(batch_df[col]) > 1:
+                    mean = batch_df[col].mean()
+                    std = batch_df[col].std()
+                    if std > 0:
+                        z_scores = np.abs((batch_df[col] - mean) / std)
+                        anomaly_count += (z_scores > 3).sum()
+            
+            # Check for drift event flag
+            has_drift_event = batch_df.attrs.get('has_drift', False)
+            
+            # Calculate batch health score
+            health_score = 1.0 - (drift_score + (anomaly_count / len(batch_df)) * 0.5)
+            health_score = max(0.0, min(1.0, health_score))
+            
+            result = {
+                'drift_score': drift_score,
+                'anomaly_count': anomaly_count,
+                'health_score': health_score,
+                'has_drift_event': has_drift_event,
+                'batch_size': len(batch_df),
+                'missing_values': int(missing_counts.sum()),
+                'timestamp': pd.Timestamp.now(),
+                'alert': has_drift_event or drift_score > 0.3 or health_score < 0.7
+            }
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error during batch scan: {str(e)}")
+            return {
+                'drift_score': 0.0,
+                'anomaly_count': 0,
+                'health_score': 1.0,
+                'has_drift_event': False,
+                'batch_size': 0,
+                'missing_values': 0,
+                'timestamp': pd.Timestamp.now(),
+                'alert': False,
+                'error': str(e)
+            }
     
     def heal_data(
         self, 

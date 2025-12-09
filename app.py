@@ -7,7 +7,8 @@ import os
 import json
 import time
 import psutil
-from io import BytesIO, StringIO
+from datetime import datetime
+from io import BytesIO
 import sys
 
 # Add src to path
@@ -121,47 +122,60 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Data source selection
-    st.subheader("📂 Data Source")
-    data_source = st.radio(
-        "Choose input method:",
-        ["Upload File", "Local Path"],
-        key="data_source"
+    # Mode selection
+    st.subheader("📂 Operation Mode")
+    operation_mode = st.radio(
+        "Choose mode:",
+        ["📁 File Analysis", "🔴 Live Feed"],
+        key="operation_mode"
     )
+    
+    st.markdown("---")
     
     data_file = None
     data_path = None
     file_size = 0
     
-    if data_source == "Upload File":
-        uploaded_file = st.file_uploader(
-            "Upload CSV File",
-            type=['csv'],
-            help="Max 200MB for cloud deployment"
+    if operation_mode == "📁 File Analysis":
+        # Data source selection
+        st.subheader("Data Source")
+        data_source = st.radio(
+            "Choose input method:",
+            ["Upload File", "Local Path"],
+            key="data_source"
         )
-        if uploaded_file:
-            file_size = uploaded_file.size
-            st.info(f"📊 File size: {format_bytes(file_size)}")
+    
+    if operation_mode == "📁 File Analysis":
+        # Data source selection (continued)
+        if 'data_source' in st.session_state and st.session_state.data_source == "Upload File":
+            uploaded_file = st.file_uploader(
+                "Upload CSV File",
+                type=['csv'],
+                help="Max 200MB for cloud deployment"
+            )
+            if uploaded_file:
+                file_size = uploaded_file.size
+                st.info(f"📊 File size: {format_bytes(file_size)}")
+                
+                # Big Data Badge
+                if file_size > 100 * 1024 * 1024:  # > 100MB
+                    st.markdown(
+                        '<div class="big-data-badge">🚀 BIG DATA MODE ACTIVE<br/>Streaming via DuckDB Zero-Copy</div>',
+                        unsafe_allow_html=True
+                    )
+                
+                if execution_mode == "cloud" and file_size > 200 * 1024 * 1024:
+                    st.error("⚠️ File too large for cloud deployment (max 200MB)")
+                else:
+                    data_file = uploaded_file
+        elif 'data_source' in st.session_state and st.session_state.data_source == "Local Path":
+            st.markdown('<div class="info-box">🚀 <b>Big Data Mode Active</b>: Leveraging DuckDB for Zero-Copy Processing.</div>', unsafe_allow_html=True)
             
-            # Big Data Badge
-            if file_size > 100 * 1024 * 1024:  # > 100MB
-                st.markdown(
-                    '<div class="big-data-badge">🚀 BIG DATA MODE ACTIVE<br/>Streaming via DuckDB Zero-Copy</div>',
-                    unsafe_allow_html=True
-                )
-            
-            if execution_mode == "cloud" and file_size > 200 * 1024 * 1024:
-                st.error("⚠️ File too large for cloud deployment (max 200MB)")
-            else:
-                data_file = uploaded_file
-    else:
-        st.markdown('<div class="info-box">🚀 <b>Big Data Mode Active</b>: Leveraging DuckDB for Zero-Copy Processing.</div>', unsafe_allow_html=True)
-        
-        data_path = st.text_input(
-            "Enter file path:",
-            placeholder="/path/to/large_dataset.csv",
-            help="Full path to CSV file on local disk"
-        )
+            data_path = st.text_input(
+                "Enter file path:",
+                placeholder="/path/to/large_dataset.csv",
+                help="Full path to CSV file on local disk"
+            )
         
         if data_path and os.path.exists(data_path):
             file_size = os.path.getsize(data_path)
@@ -177,10 +191,202 @@ with st.sidebar:
             st.error("❌ File not found")
 
 # Main content area
-col1, col2 = st.columns([2, 1])
+# Check operation mode from sidebar
+if 'operation_mode' in st.session_state and st.session_state.operation_mode == "🔴 Live Feed":
+    # LIVE FEED MODE
+    st.header("🔴 LIVE FEED - Real-Time Data Stream")
+    
+    # Initialize live feed session state
+    if 'live_feed_active' not in st.session_state:
+        st.session_state.live_feed_active = False
+    if 'stream_history' not in st.session_state:
+        st.session_state.stream_history = []
+    if 'batch_count' not in st.session_state:
+        st.session_state.batch_count = 0
+    
+    # Import stream simulator
+    from src.stream_sim import generate_live_batch, get_batch_stats
+    
+    # Control buttons
+    col_start, col_stop = st.columns(2)
+    
+    with col_start:
+        start_button = st.button("▶️ Start Stream", type="primary", use_container_width=True, disabled=st.session_state.live_feed_active)
+    
+    with col_stop:
+        stop_button = st.button("⏹️ Stop Stream", type="secondary", use_container_width=True, disabled=not st.session_state.live_feed_active)
+    
+    if start_button:
+        st.session_state.live_feed_active = True
+        st.session_state.stream_history = []
+        st.session_state.batch_count = 0
+        st.rerun()
+    
+    if stop_button:
+        st.session_state.live_feed_active = False
+        st.rerun()
+    
+    if st.session_state.live_feed_active:
+        st.markdown("### 📊 Live Stream Analytics")
+        
+        # Create placeholders for dynamic content
+        metrics_placeholder = st.empty()
+        chart_placeholder = st.empty()
+        matrix_placeholder = st.empty()
+        
+        import time
+        
+        # Streaming loop
+        for _ in range(20):  # Run for 20 batches then stop
+            if not st.session_state.live_feed_active:
+                break
+            
+            # Generate batch
+            batch_df = generate_live_batch()
+            stats = get_batch_stats(batch_df)
+            
+            # Analyze batch
+            analysis = st.session_state.engine.scan_batch(batch_df)
+            
+            # Update history
+            st.session_state.batch_count += 1
+            st.session_state.stream_history.append({
+                'batch_num': st.session_state.batch_count,
+                'health_score': analysis['health_score'],
+                'drift_score': analysis['drift_score'],
+                'anomaly_count': analysis['anomaly_count'],
+                'timestamp': analysis['timestamp']
+            })
+            
+            # Keep only last 50 batches
+            if len(st.session_state.stream_history) > 50:
+                st.session_state.stream_history.pop(0)
+            
+            # Show alert if drift detected
+            if analysis['alert']:
+                st.toast("⚠️ Anomaly Detected in Stream!", icon="🚨")
+            
+            # Update metrics
+            with metrics_placeholder.container():
+                met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+                
+                with met_col1:
+                    st.metric("Batch #", st.session_state.batch_count)
+                
+                with met_col2:
+                    st.metric("Health Score", f"{analysis['health_score']:.2%}", 
+                             delta=f"{analysis['health_score']-1.0:.2%}" if analysis['health_score'] < 1.0 else None)
+                
+                with met_col3:
+                    st.metric("Anomalies", analysis['anomaly_count'])
+                
+                with met_col4:
+                    status_emoji = "🚨" if analysis['alert'] else "✅"
+                    st.metric("Status", f"{status_emoji} {'ALERT' if analysis['alert'] else 'OK'}")
+            
+            # Update live chart
+            if len(st.session_state.stream_history) > 1:
+                import pandas as pd
+                chart_data = pd.DataFrame(st.session_state.stream_history)
+                
+                with chart_placeholder.container():
+                    st.line_chart(
+                        chart_data.set_index('batch_num')[['health_score', 'drift_score']],
+                        use_container_width=True,
+                        height=300
+                    )
+            
+            # 3D Hexagon Map - Geospatial Command Center
+            with matrix_placeholder.container():
+                st.markdown("### 🗺️ Geospatial Command Center - NYC Transactions")
+                
+                # Prepare map data
+                import pydeck as pdk
+                
+                # Build color based on health score/drift
+                map_df = batch_df[['latitude', 'longitude', 'amount', 'risk_score']].copy()
+                
+                # Create 3D Hexagon Layer
+                layer = pdk.Layer(
+                    "HexagonLayer",
+                    data=map_df,
+                    get_position='[longitude, latitude]',
+                    get_elevation_weight='amount',
+                    elevation_scale=50,
+                    elevation_range=[0, 1000],
+                    extruded=True,
+                    coverage=0.8,
+                    radius=100,
+                    # Color range: Green (low) to Red (high)
+                    color_range=[
+                        [0, 255, 0, 200],      # Green
+                        [255, 255, 0, 200],    # Yellow
+                        [255, 165, 0, 200],    # Orange
+                        [255, 0, 0, 200]       # Red
+                    ],
+                    pickable=True,
+                    auto_highlight=True
+                )
+                
+                # Set initial view state centered on NYC
+                view_state = pdk.ViewState(
+                    latitude=40.7128,
+                    longitude=-74.0060,
+                    zoom=12,
+                    pitch=45,
+                    bearing=0
+                )
+                
+                # Render the deck
+                st.pydeck_chart(pdk.Deck(
+                    layers=[layer],
+                    initial_view_state=view_state,
+                    tooltip={
+                        "text": "Transactions\nElevation based on amount"
+                    }
+                ))
+                
+                st.caption(f"🌆 Live NYC Transaction Heat Map | Batch #{st.session_state.batch_count} | {len(batch_df)} transactions")
+            
+            # Sleep for streaming effect
+            time.sleep(0.5)
+        
+        # Auto-stop after 20 batches
+        if st.session_state.batch_count >= 20:
+            st.session_state.live_feed_active = False
+            st.success("✅ Stream completed (20 batches processed)")
+            st.rerun()
+    
+    elif st.session_state.stream_history:
+        # Show summary when stopped
+        st.info("ℹ️ Stream paused. Click 'Start Stream' to resume.")
+        
+        st.markdown("### 📊 Stream Summary")
+        import pandas as pd
+        summary_df = pd.DataFrame(st.session_state.stream_history)
+        
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        
+        with sum_col1:
+            st.metric("Total Batches", len(summary_df))
+        
+        with sum_col2:
+            st.metric("Avg Health Score", f"{summary_df['health_score'].mean():.2%}")
+        
+        with sum_col3:
+            st.metric("Total Anomalies", int(summary_df['anomaly_count'].sum()))
+        
+        st.line_chart(
+            summary_df.set_index('batch_num')[['health_score', 'drift_score']],
+            use_container_width=True
+        )
 
-with col1:
-    st.header("🔍 Data Quality Analysis")
+else:
+    # FILE ANALYSIS MODE (existing code)
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.header("🔍 Data Quality Analysis")
     
     # Scan button
     if st.button("🚀 Scan for Drift", type="primary", use_container_width=True):
@@ -218,6 +424,42 @@ with col1:
                     else:
                         input_source.seek(0)  # Reset file pointer
                         st.session_state.raw_dataframe = pd.read_csv(input_source, nrows=50)
+                    
+                    # Enterprise Alerting Simulation
+                    if result['drift_score'] > 0.3:
+                        # Simulate PagerDuty alert
+                        st.toast("📟 Sending PagerDuty Alert...", icon="🚨")
+                        
+                        # Log simulated Slack webhook event
+                        import json
+                        slack_webhook_payload = {
+                            "channel": "#data-quality",
+                            "username": "Project Aegis Alert Bot",
+                            "icon_emoji": ":shield:",
+                            "attachments": [{
+                                "color": "danger" if result['drift_score'] > 0.5 else "warning",
+                                "title": f"🚨 Data Quality Alert - Drift Score: {result['drift_score']:.1%}",
+                                "text": f"High drift detected in data pipeline. {int(result['drift_score'] * result['num_columns'])} out of {result['num_columns']} columns affected.",
+                                "fields": [
+                                    {"title": "Severity", "value": "CRITICAL" if result['drift_score'] > 0.5 else "HIGH", "short": True},
+                                    {"title": "Rows Analyzed", "value": f"{result['num_rows']:,}", "short": True},
+                                    {"title": "Action Required", "value": "Investigate immediately", "short": False}
+                                ],
+                                "footer": "Project Aegis - Autonomous Data Immunity",
+                                "ts": int(datetime.now().timestamp())
+                            }]
+                        }
+                        
+                        # Store webhook payload in session (will be shown in System Logs tab)
+                        if 'alert_logs' not in st.session_state:
+                            st.session_state.alert_logs = []
+                        st.session_state.alert_logs.append({
+                            'timestamp': datetime.now().isoformat(),
+                            'type': 'slack_webhook',
+                            'payload': slack_webhook_payload
+                        })
+                        
+                        st.toast("✅ Alert sent successfully!", icon="📧")
                     
                     st.success("✅ Scan complete!")
                 except Exception as e:
@@ -277,7 +519,7 @@ with col1:
         result = st.session_state.drift_result
         drift_score = result['drift_score']
         
-        tab1, tab2, tab3 = st.tabs(["📊 Drift Visuals", "🔬 Raw Data Inspector", "🛠️ System Logs"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Drift Visuals", "🔬 Raw Data Inspector", "🛠️ System Logs", "📐 Blueprint"])
         
         with tab1:
             st.markdown("### 📊 Drift Analysis")
@@ -329,6 +571,48 @@ with col1:
                         st.warning(f"⚠️ **{col_name}**: {pct:.1f}% missing (flagged for review)")
                     else:
                         st.info(f"💉 **{col_name}**: {pct:.1f}% missing (auto-impute)")
+            
+            # AI Assistant Analysis
+            st.markdown("---")
+            with st.expander("🤖 Ask AI Assistant", expanded=drift_score > 0.3):
+                st.markdown("### AI-Powered Analysis")
+                
+                # Import reporter for AI insights
+                from src.reporter import generate_ai_insight
+                
+                # Generate AI insight
+                ai_insight = generate_ai_insight(
+                    drift_score,
+                    result['num_rows'],
+                    result['num_columns'],
+                    result['missing_stats']
+                )
+                
+                # Simulate streaming effect with markdown
+                st.markdown(ai_insight)
+                
+                # Download Executive Report Button
+                st.markdown("---")
+                if st.button("📄 Generate Executive Report", type="secondary", use_container_width=True):
+                    from src.reporter import generate_executive_report
+                    
+                    # Generate report
+                    report_content = generate_executive_report(
+                        result,
+                        st.session_state.performance_metrics if st.session_state.performance_metrics else None,
+                        ai_insight
+                    )
+                    
+                    # Provide download
+                    st.download_button(
+                        label="📥 Download Data Quality Report",
+                        data=report_content,
+                        file_name=f"Data_Quality_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                    st.success("✅ Executive report generated!")
+
         
         with tab2:
             st.markdown("### 🔬 Raw Data Inspector")
@@ -348,10 +632,23 @@ with col1:
             st.markdown("### 🛠️ System Logs")
             st.caption("Raw drift report structure (JSON)")
             
+            # Display enterprise alert logs if any
+            if 'alert_logs' in st.session_state and st.session_state.alert_logs:
+                st.markdown("#### 📡 Enterprise Alert Logs")
+                st.caption(f"{len(st.session_state.alert_logs)} alert(s) triggered")
+                
+                for i, alert_log in enumerate(reversed(st.session_state.alert_logs[-5:])):  # Show last 5
+                    with st.expander(f"🚨 Alert #{len(st.session_state.alert_logs) - i} - {alert_log['timestamp']}"):
+                        st.json(alert_log)
+                
+                st.markdown("---")
+            
             # Display raw report
             if result['report']:
+                st.markdown("#### 📊 Drift Detection Report")
                 st.json(result['report'])
             else:
+                st.markdown("#### 📊 Drift Detection Report")
                 st.json({
                     "engine": "Statistical Drift Detection",
                     "version": "1.0",
@@ -362,67 +659,149 @@ with col1:
                     "columns": result['columns']
                 })
             
+        with tab4:
+            st.markdown("### 📐 System Architecture Blueprint")
+            st.caption("Technical infrastructure showing hybrid cloud/local architecture")
+            
+            # Create graphviz diagram
+            architecture_diagram = '''
+            digraph ProjectAegis {
+                rankdir=LR;
+                node [shape=box, style="rounded,filled", fontname="Arial"];
+                
+                // Data Sources
+                subgraph cluster_sources {
+                    label="Data Sources";
+                    style=filled;
+                    color=lightgrey;
+                    upload [label="File Upload\n(Cloud)", fillcolor="#FFE6E6"];
+                    local [label="Local Path\n(Big Data)", fillcolor="#E6F3FF"];
+                    stream [label="Live Stream\n(Kafka Sim)", fillcolor="#E6FFE6"];
+                }
+                
+                // Processing Layer
+                subgraph cluster_processing {
+                    label="Processing Engine";
+                    style=filled;
+                    color=lightblue;
+                    duckdb [label="DuckDB\n(Zero-Copy)", fillcolor="#FFFACD"];
+                    engine [label="AegisEngine\n(Drift + Heal)", fillcolor="#FFD700"];
+                }
+                
+                // Analytics
+                subgraph cluster_analytics {
+                    label="Analytics";
+                    style=filled;
+                    color=lightgreen;
+                    drift [label="Drift Detection\n(Statistical)", fillcolor="#98FB98"];
+                    heal [label="Auto-Healing\n(3 Strategies)", fillcolor="#90EE90"];
+                }
+                
+                // Visualization
+                subgraph cluster_ui {
+                    label="User Interface";
+                    style=filled;
+                    color=lavender;
+                    streamlit [label="Streamlit\nDashboard", fillcolor="#E6E6FA"];
+                    pydeck [label="PyDeck 3D\nGeospatial", fillcolor="#DDA0DD"];
+                }
+                
+                // CI/CD
+                subgraph cluster_cicd {
+                    label="CI/CD Pipeline";
+                    style=filled;
+                    color=lightyellow;
+                    github [label="GitHub Actions\n(Gatekeeper)", fillcolor="#FFE4B5"];
+                    health [label="Daily Health\n(Night Watchman)", fillcolor="#FFDAB9"];
+                }
+                
+                // Connections
+                upload -> duckdb;
+                local -> duckdb;
+                stream -> engine;
+                duckdb -> engine;
+                engine -> drift;
+                engine -> heal;
+                drift -> streamlit;
+                heal -> streamlit;
+                streamlit -> pydeck;
+                engine -> github [style=dashed];
+                engine -> health [style=dashed];
+            }
+            '''
+            
+            st.graphviz_chart(architecture_diagram)
+            
+            st.markdown("""
+            **Key Components:**
+            - **DuckDB**: Zero-copy streaming for 50GB+ files
+            - **AegisEngine**: Statistical drift detection + 3-strategy healing
+            - **Live Stream**: Simulated Kafka with NYC geospatial data
+            - **PyDeck 3D**: Real-time hexagon visualization
+            - **CI/CD**: Automated testing + daily health checks
+            """)
 
-with col2:
-    st.header("📋 System Status")
-    
-    # Execution mode card
-    mode_emoji = "☁️" if execution_mode == "cloud" else "💻"
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <h2>{mode_emoji}</h2>
-            <h3>{execution_mode.upper()} MODE</h3>
-            <p>{"Render Deployment" if execution_mode == "cloud" else "Local Processing"}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Healing results
-    if st.session_state.healing_result:
-        st.success("### ✅ Healing Complete")
+
+    with col2:
+        st.header("📋 System Status")
         
-        healing = st.session_state.healing_result
+        # Execution mode card
+        mode_emoji = "☁️" if execution_mode == "cloud" else "💻"
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <h2>{mode_emoji}</h2>
+                <h3>{execution_mode.upper()} MODE</h3>
+                <p>{"Render Deployment" if execution_mode == "cloud" else "Local Processing"}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         
-        st.metric("Rows Processed", f"{healing['rows_processed']:,}")
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        if healing['columns_dropped']:
-            st.error(f"🗑️ Dropped {len(healing['columns_dropped'])} columns")
-            with st.expander("View dropped columns"):
-                for col in healing['columns_dropped']:
-                    st.text(f"• {col}")
-        
-        if healing['columns_imputed']:
-            st.info(f"💉 Imputed {len(healing['columns_imputed'])} columns")
-            with st.expander("View imputed columns"):
-                for col_info in healing['columns_imputed']:
-                    st.text(f"• {col_info['column']}: {col_info['method']} = {col_info['value']:.2f}")
-        
-        if healing['columns_flagged']:
-            st.warning(f"⚠️ Flagged {len(healing['columns_flagged'])} columns")
-        
-        st.markdown("---")
-        
-        # Download or path display
-        if execution_mode == "cloud" or data_file:
-            # Provide download button
-            if os.path.exists(healing['output_path']):
-                with open(healing['output_path'], 'rb') as f:
-                    st.download_button(
-                        label="📥 Download Clean Data",
-                        data=f,
-                        file_name=os.path.basename(healing['output_path']),
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-        else:
-            # Show local path
-            st.success("**Clean Data Path:**")
-            st.code(healing['output_path'])
-            st.caption(f"Size: {healing['output_size']}")
+        # Healing results
+        if st.session_state.healing_result:
+            st.success("### ✅ Healing Complete")
+            
+            healing = st.session_state.healing_result
+            
+            st.metric("Rows Processed", f"{healing['rows_processed']:,}")
+            
+            if healing['columns_dropped']:
+                st.error(f"🗑️ Dropped {len(healing['columns_dropped'])} columns")
+                with st.expander("View dropped columns"):
+                    for col in healing['columns_dropped']:
+                        st.text(f"• {col}")
+            
+            if healing['columns_imputed']:
+                st.info(f"💉 Imputed {len(healing['columns_imputed'])} columns")
+                with st.expander("View imputed columns"):
+                    for col_info in healing['columns_imputed']:
+                        st.text(f"• {col_info['column']}: {col_info['method']} = {col_info['value']:.2f}")
+            
+            if healing['columns_flagged']:
+                st.warning(f"⚠️ Flagged {len(healing['columns_flagged'])} columns")
+            
+            st.markdown("---")
+            
+            # Download or path display
+            if execution_mode == "cloud" or data_file:
+                # Provide download button
+                if os.path.exists(healing['output_path']):
+                    with open(healing['output_path'], 'rb') as f:
+                        st.download_button(
+                            label="📥 Download Clean Data",
+                            data=f,
+                            file_name=os.path.basename(healing['output_path']),
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+            else:
+                # Show local path
+                st.success("**Clean Data Path:**")
+                st.code(healing['output_path'])
+                st.caption(f"Size: {healing['output_size']}")
 
 # Footer
 st.markdown("---")
